@@ -1,0 +1,9 @@
+data/*
+**/*.pdf
+**/.DS_Store
+**/__pycache__
+**/.ipynb_checkpoints
+**/._*
+**/*.zip
+
+!data/.gitkeep
