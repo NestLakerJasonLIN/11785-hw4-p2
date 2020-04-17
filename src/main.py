@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 from models import Seq2Seq
 from train_test import train, test
-from dataloader import load_data, collate_train, collate_test, transform_letter_to_index, Speech2TextDataset
+from dataloader import collate, collate_test, transform_letter_to_index, Speech2TextDataset
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -27,7 +27,7 @@ def main():
     # val_dataset = 
     test_dataset = Speech2TextDataset(speech_test, None, False)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_train)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate)
     # val_loader = 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_test)
 

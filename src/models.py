@@ -80,19 +80,22 @@ class Decoder(nn.Module):
     In place of value that we get from the attention, this can be replace by context we get from the attention.
     Methods like Gumble noise and teacher forcing can also be incorporated for improving the performance.
     '''
-    def __init__(self, vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False):
+    def __init__(self, vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False, isLM=False):
         super(Decoder, self).__init__()
         self.embedding = nn.Embedding(vocab_size, hidden_dim, padding_idx=0)
         self.lstm1 = nn.LSTMCell(input_size=hidden_dim + value_size, hidden_size=hidden_dim)
         self.lstm2 = nn.LSTMCell(input_size=hidden_dim, hidden_size=key_size)
 
         self.isAttended = isAttended
+        self.isLM = isLM
+        self.vocab_size, self.hidden_dim, self.value_size, self.key_size = \
+            vocab_size, hidden_dim, value_size, key_size
         if (isAttended == True):
             self.attention = Attention()
 
         self.character_prob = nn.Linear(key_size + value_size, vocab_size)
 
-    def forward(self, key, values, text=None, isTrain=True):
+    def forward(self, key, values, text=None, isTrain=True, batch_size=None):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
         :param values: (T, N, value_size) Output of the Encoder Value projection layer
@@ -100,11 +103,10 @@ class Decoder(nn.Module):
         :param isTrain: Train or eval mode
         :return predictions: Returns the character perdiction probability 
         '''
-        batch_size = key.shape[1]
-
         if (isTrain == True):
             max_len =  text.shape[1]
             embeddings = self.embedding(text)
+            batch_size = text.shape[0]
         else:
             max_len = 250
 
@@ -122,8 +124,23 @@ class Decoder(nn.Module):
                 char_embed = embeddings[:,i,:]
             else:
                 char_embed = self.embedding(prediction.argmax(dim=-1))
+            # char_embed.shape: [batch_size, hidden_dim]
 
-            inp = torch.cat([char_embed, values[i,:,:]], dim=1)
+            if (self.isAttended):
+                # attention-based encoder-decoder
+                raise NotImplementedError
+            elif (not self.isLM):
+                # no attention encoder-decoder
+                context = values[i,:,:]
+            else:
+                # pure decoder language model
+                context = torch.zeros(batch_size, self.value_size) # TODO: random
+
+            # context.shape: [batch_size, value_size]
+
+            inp = torch.cat([char_embed, context], dim=1)
+            # inp.shape: [batch_size, hidden_dim+value_size]
+
             hidden_states[0] = self.lstm1(inp, hidden_states[0])
 
             inp_2 = hidden_states[0][0]
@@ -131,8 +148,11 @@ class Decoder(nn.Module):
 
             ### Compute attention from the output of the second LSTM Cell ###
             output = hidden_states[1][0]
+            # output.shape: [batch_size, key_size]
 
-            prediction = self.character_prob(torch.cat([output, values[i,:,:]], dim=1))
+            prediction = self.character_prob(torch.cat([output, context], dim=1))
+            # prediction.shape: [batch_size, vocab_size]
+
             predictions.append(prediction.unsqueeze(1))
 
         return torch.cat(predictions, dim=1)
