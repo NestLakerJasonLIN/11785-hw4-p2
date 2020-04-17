@@ -1,9 +1,15 @@
 data/*
+pred/*
+checkpoint/*
 **/*.pdf
 **/.DS_Store
 **/__pycache__
 **/.ipynb_checkpoints
 **/._*
 **/*.zip
+**/.idea
+note
 
 !data/.gitkeep
+!pred/.gitkeep
+!checkpoint/.gitkeep
