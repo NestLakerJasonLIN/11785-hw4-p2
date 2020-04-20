@@ -96,6 +96,8 @@ class Decoder(nn.Module):
 
         self.character_prob = nn.Linear(key_size + value_size, vocab_size)
 
+        self.init_weights()
+
     def forward(self, key, values, text=None, isTrain=True, batch_size=None, gumbel_noise=True):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
@@ -167,6 +169,14 @@ class Decoder(nn.Module):
             predictions.append(prediction.unsqueeze(1))
 
         return torch.cat(predictions, dim=1)
+
+    def init_weights(self):
+        initrange = 0.1
+        self.embedding.weight.data.uniform_(-initrange, initrange)
+        self.lstm1.weight_hh.data.uniform_(-initrange, initrange)
+        self.lstm1.weight_ih.data.uniform_(-initrange, initrange)
+        self.lstm2.weight_hh.data.uniform_(-initrange, initrange)
+        self.lstm2.weight_ih.data.uniform_(-initrange, initrange)
 
 
 class Seq2Seq(nn.Module):
