@@ -134,7 +134,7 @@ class Decoder(nn.Module):
                 context = values[i,:,:]
             else:
                 # pure decoder language model
-                context = torch.zeros(batch_size, self.value_size) # TODO: random
+                context = torch.zeros(batch_size, self.value_size).to(DEVICE) # TODO: random
 
             # context.shape: [batch_size, value_size]
 
