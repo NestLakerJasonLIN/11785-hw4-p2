@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.utils as utils
+import random
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -121,7 +122,12 @@ class Decoder(nn.Module):
             #   out of the loop so you do you do not get index out of range errors. 
 
             if (isTrain):
-                char_embed = embeddings[:,i,:]
+                # Teacher forcing
+                teacher_forcing_prob = 0.1
+                if (random.random() <= teacher_forcing_prob):
+                    char_embed = self.embedding(prediction.argmax(dim=-1))
+                else:
+                    char_embed = embeddings[:,i,:]
             else:
                 char_embed = self.embedding(prediction.argmax(dim=-1))
             # char_embed.shape: [batch_size, hidden_dim]
