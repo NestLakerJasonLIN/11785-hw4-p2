@@ -96,7 +96,7 @@ class Decoder(nn.Module):
 
         self.character_prob = nn.Linear(key_size + value_size, vocab_size)
 
-    def forward(self, key, values, text=None, isTrain=True, batch_size=None):
+    def forward(self, key, values, text=None, isTrain=True, batch_size=None, gumbel_noise=True):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
         :param values: (T, N, value_size) Output of the Encoder Value projection layer
@@ -121,14 +121,19 @@ class Decoder(nn.Module):
             # * If you haven't implemented attention yet, then you may want to check the index and break 
             #   out of the loop so you do you do not get index out of range errors. 
 
+            # add gumbel noise in generation mode. TODO: is this really correct?
             if (isTrain):
                 # Teacher forcing
                 teacher_forcing_prob = 0.1
                 if (random.random() <= teacher_forcing_prob):
+                    if gumbel_noise:
+                        prediction = get_gumbel_prediction(prediction)
                     char_embed = self.embedding(prediction.argmax(dim=-1))
                 else:
                     char_embed = embeddings[:,i,:]
             else:
+                if gumbel_noise:
+                    prediction = get_gumbel_prediction(prediction)
                 char_embed = self.embedding(prediction.argmax(dim=-1))
             # char_embed.shape: [batch_size, hidden_dim]
 
@@ -181,3 +186,9 @@ class Seq2Seq(nn.Module):
         else:
             predictions = self.decoder(key, value, text=None, isTrain=False)
         return predictions
+
+def get_gumbel_prediction(prediction):
+    U = torch.rand(prediction.shape[1]).to(DEVICE)
+    G = -torch.log(-torch.log(U))
+    prediction = torch.log(torch.nn.functional.softmax(prediction, dim=-1)) + G.repeat(prediction.shape[0], 1)
+    return prediction
