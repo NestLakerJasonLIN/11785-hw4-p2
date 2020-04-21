@@ -127,15 +127,11 @@ class Decoder(nn.Module):
             if (isTrain):
                 # Teacher forcing
                 teacher_forcing_prob = 0.1
-                if (random.random() <= teacher_forcing_prob):
-                    if gumbel_noise:
-                        prediction = get_gumbel_prediction(prediction)
+                if (i!=0 and random.random() <= teacher_forcing_prob):
                     char_embed = self.embedding(prediction.argmax(dim=-1))
                 else:
                     char_embed = embeddings[:,i,:]
             else:
-                if gumbel_noise:
-                    prediction = get_gumbel_prediction(prediction)
                 char_embed = self.embedding(prediction.argmax(dim=-1))
             # char_embed.shape: [batch_size, hidden_dim]
 
@@ -165,6 +161,9 @@ class Decoder(nn.Module):
 
             prediction = self.character_prob(torch.cat([output, context], dim=1))
             # prediction.shape: [batch_size, vocab_size]
+
+            if gumbel_noise:
+                prediction = get_gumbel_prediction(prediction)
 
             predictions.append(prediction.unsqueeze(1))
 
