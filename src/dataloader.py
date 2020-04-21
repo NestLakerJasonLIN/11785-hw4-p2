@@ -42,7 +42,20 @@ def text2index(text, letter2index, is_batch=False):
     if is_batch:
         return [index2text(row, letter2index) for row in text]
     else:
-        return [letter2index[letter] for letter in text]
+        indices = []
+        idx = 0
+        while (idx < len(text)):
+            letter = text[idx]
+            if letter == '<':
+                special_tag = text[idx:idx+len('<eos>')]
+                assert special_tag != '<eos>'
+                print("\x1b[31mWarning: encounter special tag:\x1b[0m", special_tag)
+                indices.append(letter2index[special_tag])
+                idx += len(special_tag)
+            else:
+                indices.append(letter2index[letter])
+                idx += 1
+        return indices
 
 # input is numpy.ndarray
 def index2text(index, index2letter, is_batch=False):

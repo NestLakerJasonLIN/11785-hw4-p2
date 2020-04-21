@@ -98,7 +98,7 @@ class Decoder(nn.Module):
 
         self.init_weights()
 
-    def forward(self, key, values, text=None, isTrain=True, batch_size=None, gumbel_noise=True):
+    def forward(self, key, values, text=None, isTrain=True, batch_size=None, gumbel_noise=True, random_search=False):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
         :param values: (T, N, value_size) Output of the Encoder Value projection layer
@@ -132,7 +132,11 @@ class Decoder(nn.Module):
                 else:
                     char_embed = embeddings[:,i,:]
             else:
-                char_embed = self.embedding(prediction.argmax(dim=-1))
+                if i!=0 and random_search:
+                    selected_char = torch.distributions.Categorical(nn.functional.softmax(prediction, dim=-1)).sample()
+                else:
+                    selected_char = prediction.argmax(dim=-1)
+                char_embed = self.embedding(selected_char)
             # char_embed.shape: [batch_size, hidden_dim]
 
             if (self.isAttended):
