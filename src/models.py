@@ -37,13 +37,28 @@ class pBLSTM(nn.Module):
     '''
     def __init__(self, input_dim, hidden_dim):
         super(pBLSTM, self).__init__()
-        self.blstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=1, bidirectional=True)
+        self.blstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=1, bidirectional=True, batch_first=True)
 
-    def forward(self, x):
+    def forward(self, x_pack):
         '''
-        :param x :(N, T) input to the pBLSTM
-        :return output: (N, T, H) encoded sequence from pyramidal Bi-LSTM 
+        :param x :(N, T, S) input to the pBLSTM
+        :return output: (N, T/2, 2H) encoded sequence from pyramidal Bi-LSTM 
         '''
+        x, x_lens = utils.rnn.pad_packed_sequence(x_pack, batch_first=True)
+
+        x = x[:, :(x.size(1) // 2 * 2), :]
+        # x.shape: [N, T, S]
+
+        x = x.contiguous().view(x.size(0), x.size(1) // 2, x.size(2) * 2)
+        x_lens = torch.tensor([l // 2 for l in x_lens])
+        # x.shape: [N, T/2, S*2]
+
+        x = utils.rnn.pack_padded_sequence(x, lengths=x_lens, batch_first=True, enforce_sorted=False)
+
+        outputs, _ = self.blstm(x)
+        # outputs.shape: [N, T/2, H*2]
+
+        return outputs
 
 
 class Encoder(nn.Module):
@@ -53,20 +68,26 @@ class Encoder(nn.Module):
     '''
     def __init__(self, input_dim, hidden_dim, value_size=128,key_size=128):
         super(Encoder, self).__init__()
-        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=1, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dim, num_layers=1, bidirectional=True, batch_first=True)
         
         ### Add code to define the blocks of pBLSTMs! ###
+        self.plstms = nn.Sequential(
+                            pBLSTM(hidden_dim*2*2, hidden_dim),
+                            pBLSTM(hidden_dim*2*2, hidden_dim),
+                            pBLSTM(hidden_dim*2*2, hidden_dim),
+                        )
 
         self.key_network = nn.Linear(hidden_dim*2, value_size)
         self.value_network = nn.Linear(hidden_dim*2, key_size)
 
     def forward(self, x, lens):
-        rnn_inp = utils.rnn.pack_padded_sequence(x, lengths=lens, batch_first=False, enforce_sorted=False)
+        rnn_inp = utils.rnn.pack_padded_sequence(x, lengths=lens, batch_first=True, enforce_sorted=False)
         outputs, _ = self.lstm(rnn_inp)
 
         ### Use the outputs and pass it through the pBLSTM blocks! ###
+        outputs = self.plstms(outputs)
 
-        linear_input, _ = utils.rnn.pad_packed_sequence(outputs)
+        linear_input, _ = utils.rnn.pad_packed_sequence(outputs, batch_first=True)
         keys = self.key_network(linear_input)
         value = self.value_network(linear_input)
 
@@ -98,7 +119,7 @@ class Decoder(nn.Module):
 
         self.init_weights()
 
-    def forward(self, key, values, text=None, isTrain=True, batch_size=None, gumbel_noise=True, random_search=False):
+    def forward(self, key, values, text=None, isTrain=True, gumbel_noise=True, random_search=False):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
         :param values: (T, N, value_size) Output of the Encoder Value projection layer
@@ -106,10 +127,11 @@ class Decoder(nn.Module):
         :param isTrain: Train or eval mode
         :return predictions: Returns the character perdiction probability 
         '''
+        batch_size = key.shape[0]
+
         if (isTrain == True):
             max_len =  text.shape[1]
             embeddings = self.embedding(text)
-            batch_size = text.shape[0]
         else:
             max_len = 250
 
@@ -144,7 +166,7 @@ class Decoder(nn.Module):
                 raise NotImplementedError
             elif (not self.isLM):
                 # no attention encoder-decoder
-                context = values[i,:,:]
+                context = values[:,i,:] if i < values.size(1) else torch.zeros(batch_size, self.value_size).to(DEVICE)
             else:
                 # pure decoder language model
                 context = torch.zeros(batch_size, self.value_size).to(DEVICE) # TODO: random
@@ -189,13 +211,13 @@ class Seq2Seq(nn.Module):
     '''
     def __init__(self, input_dim, vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False):
         super(Seq2Seq, self).__init__()
-        self.encoder = Encoder(input_dim, hidden_dim)
-        self.decoder = Decoder(vocab_size, hidden_dim)
+        self.encoder = Encoder(input_dim, hidden_dim, value_size=value_size, key_size=key_size)
+        self.decoder = Decoder(vocab_size, hidden_dim, value_size=value_size, key_size=key_size, isAttended=isAttended)
 
     def forward(self, speech_input, speech_len, text_input=None, isTrain=True):
         key, value = self.encoder(speech_input, speech_len)
         if (isTrain == True):
-            predictions = self.decoder(key, value, text_input)
+            predictions = self.decoder(key, value, text=text_input, isTrain=True)
         else:
             predictions = self.decoder(key, value, text=None, isTrain=False)
         return predictions
