@@ -24,6 +24,22 @@ class Attention(nn.Module):
         :return output: Attended Context
         :return attention_mask: Attention mask that can be plotted  
         '''
+        # key/value shape: [batch_szie, max_len, hidden_size]
+        # query shape: [batch_size, hidden_size]
+        attention = torch.bmm(key, query.unsqueeze(2)).squeeze(2)
+        # attention: [batch_size, max_len, 1]
+
+        mask = torch.arange(key.size(1)).unsqueeze(0) >= lens.unsqueeze(1)
+        mask = mask.to(DEVICE)
+        # shape: mask [batch_size, max_len]
+
+        attention.masked_fill_(mask, -1e9)
+        attention = nn.functional.softmax(attention, dim=1)
+
+        out = torch.bmm(attention.unsqueeze(1), value).squeeze(1)
+
+        # attention vectors are returned for visualization
+        return out, attention
 
 
 class pBLSTM(nn.Module):
@@ -119,7 +135,7 @@ class Decoder(nn.Module):
 
         self.init_weights()
 
-    def forward(self, key, values, text=None, isTrain=True, gumbel_noise=True, random_search=False):
+    def forward(self, key, value, src_lens=None, text=None, isTrain=True, gumbel_noise=True, random_search=False):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
         :param values: (T, N, value_size) Output of the Encoder Value projection layer
@@ -134,9 +150,9 @@ class Decoder(nn.Module):
             embeddings = self.embedding(text)
         else:
             max_len = 250
-
         predictions = []
-        hidden_states = [None, None]
+        hidden_states = [(torch.zeros(batch_size, self.hidden_dim).to(DEVICE), torch.zeros(batch_size, self.hidden_dim).to(DEVICE)), \
+                         (torch.zeros(batch_size, self.hidden_dim).to(DEVICE), torch.zeros(batch_size, self.hidden_dim).to(DEVICE))]
         prediction = torch.zeros(batch_size,1).to(DEVICE)
 
         for i in range(max_len):
@@ -163,7 +179,7 @@ class Decoder(nn.Module):
 
             if (self.isAttended):
                 # attention-based encoder-decoder
-                raise NotImplementedError
+                context, attention = self.attention(hidden_states[1][0].clone(), key, value, src_lens)
             elif (not self.isLM):
                 # no attention encoder-decoder
                 context = values[:,i,:] if i < values.size(1) else torch.zeros(batch_size, self.value_size).to(DEVICE)
@@ -180,6 +196,7 @@ class Decoder(nn.Module):
 
             inp_2 = hidden_states[0][0]
             hidden_states[1] = self.lstm2(inp_2, hidden_states[1])
+            # hidden_states[1].shape: [batch_size, hidden_size]
 
             ### Compute attention from the output of the second LSTM Cell ###
             output = hidden_states[1][0]
@@ -217,9 +234,9 @@ class Seq2Seq(nn.Module):
     def forward(self, speech_input, speech_len, text_input=None, isTrain=True):
         key, value = self.encoder(speech_input, speech_len)
         if (isTrain == True):
-            predictions = self.decoder(key, value, text=text_input, isTrain=True)
+            predictions = self.decoder(key, value, src_lens=torch.tensor(speech_len), text=text_input, isTrain=True)
         else:
-            predictions = self.decoder(key, value, text=None, isTrain=False)
+            predictions = self.decoder(key, value, src_lens=torch.tensor(speech_len), text=None, isTrain=False)
         return predictions
 
 def get_gumbel_prediction(prediction):
