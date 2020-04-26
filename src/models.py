@@ -103,11 +103,11 @@ class Encoder(nn.Module):
         ### Use the outputs and pass it through the pBLSTM blocks! ###
         outputs = self.plstms(outputs)
 
-        linear_input, _ = utils.rnn.pad_packed_sequence(outputs, batch_first=True)
+        linear_input, enc_lens = utils.rnn.pad_packed_sequence(outputs, batch_first=True)
         keys = self.key_network(linear_input)
         value = self.value_network(linear_input)
 
-        return keys, value
+        return keys, value, enc_lens
 
 
 class Decoder(nn.Module):
@@ -179,7 +179,7 @@ class Decoder(nn.Module):
 
             if (self.isAttended):
                 # attention-based encoder-decoder
-                context, attention = self.attention(hidden_states[1][0].clone(), key, value, src_lens)
+                context, attention = self.attention(hidden_states[1][0], key, value, src_lens)
             elif (not self.isLM):
                 # no attention encoder-decoder
                 context = values[:,i,:] if i < values.size(1) else torch.zeros(batch_size, self.value_size).to(DEVICE)
@@ -201,6 +201,7 @@ class Decoder(nn.Module):
             ### Compute attention from the output of the second LSTM Cell ###
             output = hidden_states[1][0]
             # output.shape: [batch_size, key_size]
+            # TODO: maybe put attention here
 
             prediction = self.character_prob(torch.cat([output, context], dim=1))
             # prediction.shape: [batch_size, vocab_size]
@@ -232,11 +233,11 @@ class Seq2Seq(nn.Module):
         self.decoder = Decoder(vocab_size, hidden_dim, value_size=value_size, key_size=key_size, isAttended=isAttended)
 
     def forward(self, speech_input, speech_len, text_input=None, isTrain=True):
-        key, value = self.encoder(speech_input, speech_len)
+        key, value, enc_lens = self.encoder(speech_input, speech_len)
         if (isTrain == True):
-            predictions = self.decoder(key, value, src_lens=torch.tensor(speech_len), text=text_input, isTrain=True)
+            predictions = self.decoder(key, value, src_lens=enc_lens, text=text_input, isTrain=True)
         else:
-            predictions = self.decoder(key, value, src_lens=torch.tensor(speech_len), text=None, isTrain=False)
+            predictions = self.decoder(key, value, src_lens=enc_lens, text=None, isTrain=False)
         return predictions
 
 def get_gumbel_prediction(prediction):
