@@ -118,10 +118,10 @@ class Decoder(nn.Module):
     In place of value that we get from the attention, this can be replace by context we get from the attention.
     Methods like Gumble noise and teacher forcing can also be incorporated for improving the performance.
     '''
-    def __init__(self, vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False, isLM=False):
+    def __init__(self, vocab_size, emb_dim, hidden_dim, value_size=128, key_size=128, isAttended=False, isLM=False):
         super(Decoder, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, hidden_dim, padding_idx=0)
-        self.lstm1 = nn.LSTMCell(input_size=hidden_dim + value_size, hidden_size=hidden_dim)
+        self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+        self.lstm1 = nn.LSTMCell(input_size=emb_dim + value_size, hidden_size=hidden_dim)
         self.lstm2 = nn.LSTMCell(input_size=hidden_dim, hidden_size=key_size)
 
         self.isAttended = isAttended
@@ -135,7 +135,7 @@ class Decoder(nn.Module):
 
         self.init_weights()
 
-    def forward(self, key, value, src_lens=None, text=None, isTrain=True, gumbel_noise=True, random_search=False):
+    def forward(self, key, value, src_lens=None, text=None, isTrain=True, sos_idx=33, gumbel_noise=True, random_search=False, loss=-1):
         '''
         :param key :(T, N, key_size) Output of the Encoder Key projection layer
         :param values: (T, N, value_size) Output of the Encoder Value projection layer
@@ -152,7 +152,7 @@ class Decoder(nn.Module):
             max_len = 250
         predictions = []
         hidden_states = [(torch.zeros(batch_size, self.hidden_dim).to(DEVICE), torch.zeros(batch_size, self.hidden_dim).to(DEVICE)), \
-                         (torch.zeros(batch_size, self.hidden_dim).to(DEVICE), torch.zeros(batch_size, self.hidden_dim).to(DEVICE))]
+                         (torch.zeros(batch_size, self.key_size).to(DEVICE), torch.zeros(batch_size, self.key_size).to(DEVICE))]
         prediction = torch.zeros(batch_size,1).to(DEVICE)
 
         for i in range(max_len):
@@ -164,7 +164,7 @@ class Decoder(nn.Module):
             # add gumbel noise in generation mode. TODO: is this really correct?
             if (isTrain):
                 # Teacher forcing
-                teacher_forcing_prob = 0.1
+                teacher_forcing_prob = get_tf_prob(loss)
                 if (i!=0 and random.random() <= teacher_forcing_prob):
                     char_embed = self.embedding(prediction.argmax(dim=-1))
                 else:
@@ -172,6 +172,8 @@ class Decoder(nn.Module):
             else:
                 if i!=0 and random_search:
                     selected_char = torch.distributions.Categorical(nn.functional.softmax(prediction, dim=-1)).sample()
+                elif i == 0:
+                    selected_char = torch.zeros(batch_size, dtype=torch.long).fill_(sos_idx).to(DEVICE)
                 else:
                     selected_char = prediction.argmax(dim=-1)
                 char_embed = self.embedding(selected_char)
@@ -227,17 +229,19 @@ class Seq2Seq(nn.Module):
     We train an end-to-end sequence to sequence model comprising of Encoder and Decoder.
     This is simply a wrapper "model" for your encoder and decoder.
     '''
-    def __init__(self, input_dim, vocab_size, hidden_dim, value_size=128, key_size=128, isAttended=False):
+    def __init__(self, input_dim, vocab_size, enc_hidden_dim, dec_hidden_dim, emb_dim,
+                 value_size=128, key_size=128, isAttended=False, sos_idx=33):
         super(Seq2Seq, self).__init__()
-        self.encoder = Encoder(input_dim, hidden_dim, value_size=value_size, key_size=key_size)
-        self.decoder = Decoder(vocab_size, hidden_dim, value_size=value_size, key_size=key_size, isAttended=isAttended)
+        self.sos_idx = sos_idx
+        self.encoder = Encoder(input_dim, enc_hidden_dim, value_size=value_size, key_size=key_size)
+        self.decoder = Decoder(vocab_size, emb_dim, dec_hidden_dim, value_size=value_size, key_size=key_size, isAttended=isAttended)
 
-    def forward(self, speech_input, speech_len, text_input=None, isTrain=True):
+    def forward(self, speech_input, speech_len, text_input=None, isTrain=True, loss=-1):
         key, value, enc_lens = self.encoder(speech_input, speech_len)
         if (isTrain == True):
             predictions = self.decoder(key, value, src_lens=enc_lens, text=text_input, isTrain=True)
         else:
-            predictions = self.decoder(key, value, src_lens=enc_lens, text=None, isTrain=False)
+            predictions = self.decoder(key, value, src_lens=enc_lens, text=None, sos_idx=self.sos_idx, isTrain=False, loss=loss)
         return predictions
 
 def get_gumbel_prediction(prediction):
@@ -245,3 +249,21 @@ def get_gumbel_prediction(prediction):
     G = -torch.log(-torch.log(U))
     prediction = torch.log(torch.nn.functional.softmax(prediction, dim=-1)) + G.repeat(prediction.shape[0], 1)
     return prediction
+
+def get_tf_prob(loss):
+    prob = 0.0
+    if (loss==-1):
+        prob = 0.1
+    elif (loss > 25):
+        prob = 0.0
+    elif (loss > 20):
+        prob = 0.05
+    elif (loss > 10):
+        prob = 0.10
+    elif (loss > 5):
+        prob = 0.20
+    elif (loss > 2.5):
+        prob = 0.30
+    else:
+        prob = 0.40
+    return prob
