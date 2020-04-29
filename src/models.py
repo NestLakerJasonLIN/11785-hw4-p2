@@ -254,12 +254,13 @@ class Seq2Seq(nn.Module):
         self.encoder = Encoder(input_dim, enc_hidden_dim, value_size=value_size, key_size=key_size)
         self.decoder = Decoder(vocab_size, emb_dim, dec_hidden_dim, value_size=value_size, key_size=key_size, isAttended=isAttended)
 
-    def forward(self, speech_input, speech_len, text_input=None, isTrain=True, loss=-1):
+    def forward(self, speech_input, speech_len, text_input=None, isTrain=True, loss=-1, gumbel_noise=True):
         key, value, enc_lens = self.encoder(speech_input, speech_len)
         if (isTrain == True):
             predictions = self.decoder(key, value, src_lens=enc_lens, text=text_input, isTrain=True)
         else:
-            predictions = self.decoder(key, value, src_lens=enc_lens, text=None, sos_idx=self.sos_idx, isTrain=False, loss=loss)
+            predictions = self.decoder(key, value, src_lens=enc_lens, text=None, sos_idx=self.sos_idx,
+                                       gumbel_noise=gumbel_noise, isTrain=False, loss=loss)
         return predictions
 
 # TODO: modify threshold
@@ -281,6 +282,4 @@ def get_tf_prob(loss):
         prob = 0.40
     elif (loss > 0.5):
         prob = 0.50
-    else:
-        prob = 0.60
     return prob
