@@ -237,9 +237,9 @@ class Decoder(nn.Module):
 
 #     def get_gumbel_prediction(self, prediction):
 #         prediction = prediction.detach()
-#         U = torch.rand(prediction.shape[1]).to(DEVICE)
+#         U = torch.distributions.Uniform(0,1).sample(prediction.shape).to(DEVICE)
 #         G = -torch.log(-torch.log(U))
-#         prediction = torch.log(torch.nn.functional.softmax(prediction, dim=-1)) + G.repeat(prediction.shape[0], 1)
+#         prediction = torch.log(torch.nn.functional.softmax(prediction, dim=-1)) + G
 #         return prediction
 
 class Seq2Seq(nn.Module):
