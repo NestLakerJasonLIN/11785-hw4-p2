@@ -167,22 +167,28 @@ class Decoder(nn.Module):
                 teacher_forcing_prob = get_tf_prob(loss)
                 if (i!=0 and random.random() <= teacher_forcing_prob):
                     if gumbel_noise:
-                        prediction = get_gumbel_prediction(prediction)
-                    char_embed = self.embedding(prediction.argmax(dim=-1))
+                        char_embed = self.get_gumbel_prediction(prediction)
+                    else:
+                        char_embed = self.embedding(prediction.argmax(dim=-1))
                 else:
                     char_embed = embeddings[:,i,:]
             else:
                 if i!=0 and random_search:
                     if gumbel_noise:
-                        prediction = get_gumbel_prediction(prediction)
-                    selected_char = torch.distributions.Categorical(nn.functional.softmax(prediction, dim=-1)).sample()
+                        char_embed = self.get_gumbel_prediction(prediction)
+                    else:
+                        selected_char = torch.distributions.Categorical(nn.functional.softmax(prediction, dim=-1)).sample()
+                        char_embed = self.embedding(selected_char)
                 elif i == 0:
                     selected_char = torch.zeros(batch_size, dtype=torch.long).fill_(sos_idx).to(DEVICE)
+                    char_embed = self.embedding(selected_char)
                 else:
                     if gumbel_noise:
-                        prediction = get_gumbel_prediction(prediction)
-                    selected_char = prediction.argmax(dim=-1)
-                char_embed = self.embedding(selected_char)
+                        char_embed = self.get_gumbel_prediction(prediction)
+                    else:
+                        selected_char = prediction.argmax(dim=-1)
+                        char_embed = self.embedding(selected_char)
+
             # char_embed.shape: [batch_size, hidden_dim]
 
             if (self.isAttended):
@@ -226,6 +232,15 @@ class Decoder(nn.Module):
         self.lstm2.weight_hh.data.uniform_(-initrange, initrange)
         self.lstm2.weight_ih.data.uniform_(-initrange, initrange)
 
+    def get_gumbel_prediction(self, prediction):
+        return torch.nn.functional.gumbel_softmax(prediction).mm(self.embedding.weight)
+
+#     def get_gumbel_prediction(self, prediction):
+#         prediction = prediction.detach()
+#         U = torch.rand(prediction.shape[1]).to(DEVICE)
+#         G = -torch.log(-torch.log(U))
+#         prediction = torch.log(torch.nn.functional.softmax(prediction, dim=-1)) + G.repeat(prediction.shape[0], 1)
+#         return prediction
 
 class Seq2Seq(nn.Module):
     '''
@@ -247,13 +262,6 @@ class Seq2Seq(nn.Module):
             predictions = self.decoder(key, value, src_lens=enc_lens, text=None, sos_idx=self.sos_idx, isTrain=False, loss=loss)
         return predictions
 
-def get_gumbel_prediction(prediction):
-    prediction = prediction.detach()
-    U = torch.rand(prediction.shape[1]).to(DEVICE)
-    G = -torch.log(-torch.log(U))
-    prediction = torch.log(torch.nn.functional.softmax(prediction, dim=-1)) + G.repeat(prediction.shape[0], 1)
-    return prediction
-
 # TODO: modify threshold
 def get_tf_prob(loss):
     prob = 0.0
@@ -269,6 +277,10 @@ def get_tf_prob(loss):
         prob = 0.20
     elif (loss > 1.0):
         prob = 0.30
-    else:
+    elif (loss > 0.7):
         prob = 0.40
+    elif (loss > 0.5):
+        prob = 0.50
+    else:
+        prob = 0.60
     return prob
